@@ -1,31 +1,29 @@
 package com.shankephone.data.cleaning.job;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 
+import lombok.extern.slf4j.Slf4j;
+
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 
-import com.alibaba.fastjson.JSONObject;
 import com.mysql.jdbc.jdbc2.optional.MysqlDataSource;
 import com.shankephone.data.cleaning.common.JdbcDaoFactory;
-import com.shankephone.data.cleaning.model.DBDataSource;
-import com.shankephone.data.cleaning.model.QueryInfo;
-import com.shankephone.data.cleaning.model.Regulation;
-import com.shankephone.data.cleaning.model.RegulationDetail;
 
 /**
  * 数据清理处理类
  * @author fengql
  * @version 2018年3月29日 下午7:27:40
  */
+@Slf4j
 public class DataCleaningJob {
 	
 	private Properties properties = new Properties();
+	private String jobName="";//作业名称
 	
 	//规则配置数据源
 	private String url;
@@ -34,32 +32,8 @@ public class DataCleaningJob {
 	private MysqlDataSource dataSource = new MysqlDataSource();
 	private JdbcDaoFactory regFactory;
 	
-	//历史库数据源
-	private String historyUrl;
-	private String historyUsername;
-	private String historyPassword;
-	private MysqlDataSource historyDataSource = new MysqlDataSource();
-	private JdbcDaoFactory historyFactory;
-	
-	public static void main(String[] args) {
-		DataCleaningJob job = new DataCleaningJob();
-		job.execute();
-	}
-	
-	public void execute(){
-		Map<String,DBDataSource> dbsources = generateRegulation();
-		List<QueryInfo> list = generateQueryInfo(dbsources);
-		for(QueryInfo queryInfo : list){
-			String slaveSQL = queryInfo.getSlaveSQL();
-			JdbcTemplate slaveJdbc = queryInfo.getSlaveDao().getJdbcTemplate();
-			List<Map<String,Object>> result = slaveJdbc.queryForList(slaveSQL);
-			JdbcTemplate masterJdbc = queryInfo.getMasterDao().getJdbcTemplate();
-			masterJdbc.execute(queryInfo.getMasterSQL());
-			System.out.println(JSONObject.toJSON(result));
-		}
-	}
-	
-	public DataCleaningJob(){
+	public DataCleaningJob(String jobName){
+		this.jobName=jobName;
 		try {
 			properties.load(this.getClass().getClassLoader().getResourceAsStream("application.properties"));
 			//规则配置数据源
@@ -69,156 +43,111 @@ public class DataCleaningJob {
 			dataSource.setUrl(url);
 			dataSource.setUser(username);
 			dataSource.setPassword(password);
-			regFactory = JdbcDaoFactory.build(url, username, password);
-			
-			//历史库数据源
-			historyUrl = properties.getProperty("history.dataSource.url");
-			historyUsername = properties.getProperty("history.dataSource.username");
-			historyPassword = properties.getProperty("history.dataSource.password");
-			historyDataSource.setUrl(historyUrl);
-			historyDataSource.setUser(historyUsername);
-			historyDataSource.setPassword(historyPassword);
-			historyFactory = JdbcDaoFactory.build(historyUrl, historyUsername, historyPassword);
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
 	}
 	
+	public void execute(){
+		regFactory = JdbcDaoFactory.build(url, username, password);
+		String dataSourceSQL = " SELECT r.* FROM job_reg_relation r LEFT JOIN job_setting j ON r.job_id=j.id WHERE j.job_name='" + jobName + "'";
+    	List<Map<String,Object>> maps = regFactory.getJdbcTemplate().queryForList(dataSourceSQL);
+    	if(maps!=null && maps.size()>0){
+    		for(int i=0;i<maps.size();i++){
+    			Map<String,Object> map=maps.get(i);
+    			long reg_id=(Long)map.get("reg_id");//规则id
+    			generateRegulation(reg_id);
+    		}
+    	}
+	}
+	 
 	/**
 	 * 生成规则关联
 	 * @return
 	 */
-	public Map<String,DBDataSource> generateRegulation(){
-		Map<String,DBDataSource> dsMap = new HashMap<String,DBDataSource>();
-		//查询规则定义的所有数据源列表
-		List<Map<String,Object>> dataSources = regFactory.getJdbcTemplate().queryForList(" select * from data_source ");
-		for(Map<String,Object> record : dataSources){
-			DBDataSource dbDatasource = new DBDataSource();
-			String id = String.valueOf(record.get("id"));
-			
-			String masterUrl = String.valueOf(record.get("master_url"));
-			String masterUsername = String.valueOf(record.get("master_username"));
-			String masterPassword = String.valueOf(record.get("master_password"));
-			
-			String slaveUrl = String.valueOf(record.get("slave_url"));
-			String slaveUsername = String.valueOf(record.get("slave_username"));
-			String slavePassword = String.valueOf(record.get("slave_password"));
-			
-			dbDatasource.setId(id);
-			dbDatasource.setMasterUrl(masterUrl);
-			dbDatasource.setMasterUsername(masterUsername);
-			dbDatasource.setMasterPassword(masterPassword);
-			dbDatasource.setSlaveUrl(slaveUrl);
-			dbDatasource.setSlaveUsername(slaveUsername);
-			dbDatasource.setSlavePassword(slavePassword);
-			
-			List<Map<String,Object>> regulations = regFactory.getJdbcTemplate().queryForList(" select * from regulation where source_id = " + id);
-			for(Map<String,Object> reg : regulations){
-				String regId = String.valueOf(reg.get("id"));
-				String sourceId = String.valueOf(reg.get("source_id"));
-				String dbName = String.valueOf(reg.get("db_name"));
-				String tableName = String.valueOf(reg.get("table_name"));
-				Date createTime = (Date)reg.get("create_time");
-				Date modifyTime = (Date)reg.get("modify_time");
-				
-				Regulation regulation = new Regulation();
-				regulation.setId(regId);
-				regulation.setSourceId(sourceId);
-				regulation.setDbName(dbName);
-				regulation.setTableName(tableName);
-				regulation.setCreateTime(createTime);
-				regulation.setModifyTime(modifyTime);
-				
-				List<Map<String,Object>> details = regFactory.getJdbcTemplate().queryForList(" select * from regulation_detail where regulation_id = " + id);
-				for(Map<String,Object> detail : details){
-					String detailId = String.valueOf(detail.get("id"));
-					String regulationId = String.valueOf(detail.get("regulation_id"));
-					String colName = String.valueOf(detail.get("col_name"));
-					String colValue = String.valueOf(detail.get("col_value"));
-					String colType = String.valueOf(detail.get("col_type"));
-					String operator = String.valueOf(detail.get("operator"));
-					RegulationDetail dt = new RegulationDetail();
-					dt.setId(detailId);
-					dt.setRegulationId(regulationId);
-					dt.setColName(colName);
-					dt.setColValue(colValue);
-					dt.setColType(colType);
-					dt.setOperator(operator);
-					regulation.getDetails().add(dt);
-				}
-				dbDatasource.getRegulations().add(regulation);
-				
-			}
-			dsMap.put(id,dbDatasource);
+	public void generateRegulation(long reg_id){
+		Map<String,Object> regulationMap = regFactory.getJdbcTemplate().queryForMap(" select * from regulation where id = " + reg_id );
+		long source_id=(Long)regulationMap.get("source_id");
+		long history_source_id=(Long)regulationMap.get("history_source_id");
+		String db_name=(String)regulationMap.get("db_name");//源库名
+		String history_db_name=(String)regulationMap.get("history_db_name");//历史库名
+		String sql_txt=(String)regulationMap.get("sql_txt");//清理数据的SQL语句
+		String check_sql=(String)regulationMap.get("check_sql");//校验从库SQL
+		String check_history_sql=(String)regulationMap.get("check_history_sql");//校验历史库SQL
+		
+		Map<String,Object> dataSourceMap = regFactory.getJdbcTemplate().queryForMap(" select * from data_source where id="+source_id);
+		Map<String,Object> historyDataSourceMap = regFactory.getJdbcTemplate().queryForMap(" select * from data_source where id="+history_source_id);
+		regFactory.close();
+		//目标数据源（主）
+		String master_url=JdbcDaoFactory.URL_PREFIX + (String)dataSourceMap.get("master_url") + "/"+ db_name + JdbcDaoFactory.URL_SUFFIX;
+		String master_username=(String)dataSourceMap.get("master_username");
+		String master_password=(String)dataSourceMap.get("master_password");
+		JdbcDaoFactory masterFactory = JdbcDaoFactory.build(master_url, master_username, master_password);
+		//目标数据源（从）
+		String slave_url=JdbcDaoFactory.URL_PREFIX + (String)dataSourceMap.get("slave_url") + "/"+ db_name + JdbcDaoFactory.URL_SUFFIX;
+		String slave_username=(String)dataSourceMap.get("slave_username");
+		String slave_password=(String)dataSourceMap.get("slave_password");
+		JdbcDaoFactory slaveFactory = JdbcDaoFactory.build(slave_url, slave_username, slave_password);
+		//历史数据源
+		String historyMaster_url=JdbcDaoFactory.URL_PREFIX + (String)historyDataSourceMap.get("master_url") + "/"+ history_db_name + JdbcDaoFactory.URL_SUFFIX;
+		String historyMaster_username=(String)historyDataSourceMap.get("master_username");
+		String historyMaster_password=(String)historyDataSourceMap.get("master_password");
+		JdbcDaoFactory historyFactory = JdbcDaoFactory.build(historyMaster_url, historyMaster_username, historyMaster_password);
+		
+		//一致性校验
+		Map<String,Object> checkMap = new HashMap<String,Object>();
+		boolean isSlaveExist=false;//从库是否存在
+		if("".equals(slave_url) || "".equals(slave_username) || "".equals(slave_password) ){
+			checkMap = masterFactory.getJdbcTemplate().queryForMap(check_sql);
 		}
-		return dsMap;
-	}
-	
-	/**
-	 * 生成执行的SQL语句
-	 * @param dbsources
-	 * @return
-	 */
-	public List<QueryInfo> generateQueryInfo(Map<String,DBDataSource> dbsources) {
-		List<QueryInfo> queryInfos = new ArrayList<QueryInfo>();
-		for(String sourceId : dbsources.keySet()){
-			DBDataSource source = dbsources.get(sourceId);
-			List<Regulation> regs = source.getRegulations();
-			if(regs.size() > 0){
-				for(Regulation reg : source.getRegulations()){
-					//创建从库查询信息
-					QueryInfo queryInfo = new QueryInfo();
-					queryInfo.setId(sourceId);
-					queryInfo.setDbName(reg.getDbName());
-					//从库配置
-					String slaveUrl = source.getSlaveUrl();
-					slaveUrl = JdbcDaoFactory.URL_PREFIX + slaveUrl + "/" + queryInfo.getDbName() + JdbcDaoFactory.URL_SUFFIX;
-					queryInfo.setSlaveUrl(slaveUrl);
-					queryInfo.setSlaveUsername(source.getSlaveUsername());
-					queryInfo.setSlavePassword(source.getSlavePassword());
-					
-					//主库配置
-					String masterUrl = source.getMasterUrl();
-					masterUrl = JdbcDaoFactory.URL_PREFIX + masterUrl + "/" + queryInfo.getDbName() + JdbcDaoFactory.URL_SUFFIX;
-					queryInfo.setMasterUrl(masterUrl);
-					queryInfo.setMasterUsername(source.getMasterUsername());
-					queryInfo.setMasterPassword(source.getMasterPassword());
-					
-					String dbName = reg.getDbName();
-					String tableName = reg.getTableName();
-					String slaveSQL = "select * from " + dbName + "." + tableName;
-					String masterSQL = "delete from " + dbName + "." + tableName;
-					List<RegulationDetail> details = reg.getDetails();
-					if(details.size() > 0){
-						String conditions = " where 1 = 1 ";
-						for(RegulationDetail detail : details){
-							String colType = detail.getColType();
-							String colValue = detail.getColValue();
-							switch(colType){
-								case "varchar": 
-									colValue = "'" + colValue + "'"; break;
-								default : 
-									break;
-							}
-							String term = " and " + detail.getColName() + " " + detail.getOperator() + " " + colValue; 
-							conditions += term;
-						}
-						slaveSQL += conditions;
-						masterSQL += conditions;
+		else{
+			isSlaveExist=true;
+			checkMap = slaveFactory.getJdbcTemplate().queryForMap(check_sql);
+		}
+		Map<String,Object> historyMap=historyFactory.getJdbcTemplate().queryForMap(check_history_sql);
+		historyFactory.close();
+		if(checkMap!=null && historyMap!=null && checkMap.size()==historyMap.size()){
+			long checkCount = (Long)checkMap.get("count");
+			long historyCount = (Long)historyMap.get("count");
+			log.info("history:  "+ historyCount);
+			log.info("checkDB:  "+checkCount);
+			if(historyCount == checkCount) {
+				log.info("masterSQL:    " + sql_txt); 
+				String binlogSetSqlNo="set sql_log_bin=0;";
+				String binlogSetSqlYes="set sql_log_bin=1;";
+				try {
+					masterFactory.openTransaction();
+					masterFactory.setAutoCommit(false);
+					JdbcTemplate masterJdbc = masterFactory.getJdbcTemplate();
+					masterJdbc.execute(binlogSetSqlNo);	//设置binlog日志关闭
+					masterJdbc.execute(sql_txt);	//主库删除
+					masterFactory.commit();
+					masterJdbc.execute(binlogSetSqlYes);	//设置binlog日志开启
+					if(isSlaveExist){
+						slaveFactory.openTransaction();
+						slaveFactory.setAutoCommit(false);
+						JdbcTemplate slaveJdbc = slaveFactory.getJdbcTemplate();
+						slaveJdbc.execute(binlogSetSqlNo);//设置binlog日志关闭
+						slaveJdbc.execute(sql_txt);//从库删除
+						slaveFactory.commit();
+						slaveJdbc.execute(binlogSetSqlYes);	//设置binlog日志开启
+						log.info("------------------删除数据记录数：" + checkCount);
 					}
-					queryInfo.setSlaveSQL(slaveSQL); 
-					queryInfo.setMasterSQL(masterSQL);
-					JdbcDaoFactory masterDao = JdbcDaoFactory.build(masterUrl, queryInfo.getMasterUsername(), queryInfo.getMasterPassword());
-					JdbcDaoFactory slaveDao = JdbcDaoFactory.build(slaveUrl, queryInfo.getSlaveUsername(), queryInfo.getSlavePassword());
-					String json = JSONObject.toJSON(queryInfo).toString();
-					System.out.println(json);
-					queryInfo.setMasterDao(masterDao);
-					queryInfo.setSlaveDao(slaveDao);
-					queryInfos.add(queryInfo);
+				} catch (DataAccessException e) {
+					masterFactory.rollback();
+					log.info("------------------删除数据记录异常：已撤消！");
+				} finally {
+					masterFactory.close();
+					if(isSlaveExist){
+						slaveFactory.close();
+					}
+					log.info("------------------连接已关闭！");
 				}
+			} else{
+				log.info("未通过校验！");
 			}
 		}
-		return queryInfos;
+		
 	}
 
 }

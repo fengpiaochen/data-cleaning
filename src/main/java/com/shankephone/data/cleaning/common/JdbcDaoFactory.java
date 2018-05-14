@@ -2,6 +2,7 @@ package com.shankephone.data.cleaning.common;
 
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.util.Properties;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
@@ -26,7 +27,6 @@ public class JdbcDaoFactory {
 	private DefaultTransactionDefinition def;
 	private TransactionStatus status;
 	private JdbcTemplate jdbcTemplate;
-	private Connection connection;
 	private String dbname;
 	
 	/**
@@ -52,17 +52,13 @@ public class JdbcDaoFactory {
 		dataSource.setUrl(url);
 		dataSource.setUsername(username);
 		dataSource.setPassword(password);
-		dataSource.setSuppressClose(false);
+		dataSource.setSuppressClose(true);
 		txManager = new DataSourceTransactionManager(dataSource);
 		def = new DefaultTransactionDefinition();
 		def.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
 		def.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRED);
 		jdbcTemplate = new JdbcTemplate(dataSource);
-		try {
-			connection = dataSource.getConnection();
-		} catch (SQLException e) {
-			e.printStackTrace();
-		} 
+		
 	}
 
 	/**
@@ -73,6 +69,18 @@ public class JdbcDaoFactory {
 	 * @return
 	 */
 	public static JdbcDaoFactory build(String url, String username, String password) {
+		return new JdbcDaoFactory(url, username, password);
+	}
+	
+	/**
+	 * 构建数据库操作实例
+	 * @param properties
+	 * @return
+	 */
+	public static JdbcDaoFactory build(Properties properties) {
+		String url = properties.getProperty("dataSource.url");
+		String username = properties.getProperty("dataSource.username");
+		String password = properties.getProperty("dataSource.password");
 		return new JdbcDaoFactory(url, username, password);
 	}
 	
@@ -109,7 +117,7 @@ public class JdbcDaoFactory {
 	 */
 	public void setAutoCommit(boolean commit){
 		try {
-			connection.setAutoCommit(commit);
+			dataSource.getConnection().setAutoCommit(commit);
 		} catch (SQLException e) {
 			e.printStackTrace();
 		} 
@@ -133,18 +141,41 @@ public class JdbcDaoFactory {
 	 * 关闭连接
 	 */
 	public void close(){
+		Connection conn = null;
 		try {
-			connection.close();
+			conn = dataSource.getConnection();
+			conn.close();
 		} catch (SQLException e) {
 			e.printStackTrace();
 		} finally {
 			try {
-				if(connection != null){
-					connection.close();
+				if(conn != null){
+					conn.close();
 				}
 			} catch (SQLException e) {
-				connection = null;
+				conn = null;
 			}
+		}
+	}
+	
+	public Connection getConnection(){
+		try {
+			return dataSource.getConnection();
+		} catch (SQLException e) {
+			return null;
+		}
+	}
+	
+	public void closeJdbcConnection(JdbcTemplate jdbc){
+		Connection conn = null;
+		try {
+			conn = jdbc.getDataSource().getConnection();
+			if(conn != null){
+				conn.close();
+			}
+		} catch (SQLException e1) {
+		} finally {
+			conn = null;
 		}
 	}
 

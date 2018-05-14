@@ -12,7 +12,7 @@ public class RegulationDetail {
 	private String colName;
 	private String colValue;
 	private String operator;
-	private String colType;
+	private String sqlTxt;
 	
 	public String getId() {
 		return id;
@@ -44,12 +44,11 @@ public class RegulationDetail {
 	public void setOperator(String operator) {
 		this.operator = operator;
 	}
-	public String getColType() {
-		return colType;
+	public String getSqlTxt() {
+		return sqlTxt;
 	}
-	public void setColType(String colType) {
-		this.colType = colType;
+	public void setSqlTxt(String sqlTxt) {
+		this.sqlTxt = sqlTxt;
 	}
-
 	
 }

@@ -23,6 +23,7 @@ public class QueryInfo {
 	
 	private String slaveSQL;
 	private String masterSQL;
+	private String checkSQL;
 	
 	private JdbcDaoFactory slaveDao;
 	private JdbcDaoFactory masterDao;
@@ -121,6 +122,14 @@ public class QueryInfo {
 
 	public void setMasterDao(JdbcDaoFactory masterDao) {
 		this.masterDao = masterDao;
+	}
+
+	public String getCheckSQL() {
+		return checkSQL;
+	}
+
+	public void setCheckSQL(String checkSQL) {
+		this.checkSQL = checkSQL;
 	}
 	
 	

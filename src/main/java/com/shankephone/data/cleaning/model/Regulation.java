@@ -1,8 +1,6 @@
 package com.shankephone.data.cleaning.model;
 
-import java.util.ArrayList;
 import java.util.Date;
-import java.util.List;
 
 /**
  * 数据库名和表规则定义
@@ -15,10 +13,13 @@ public class Regulation {
 	private String sourceId;
 	private String dbName;
 	private String tableName;
+	private String name;
+	private String colName;
+	private String colValue;
+	private String operator;
+	private String sqlTxt;
 	private Date createTime;
 	private Date modifyTime;
-	
-	private List<RegulationDetail> details = new ArrayList<RegulationDetail>();
 	
 	public String getId() {
 		return id;
@@ -56,11 +57,35 @@ public class Regulation {
 	public void setModifyTime(Date modifyTime) {
 		this.modifyTime = modifyTime;
 	}
-	public List<RegulationDetail> getDetails() {
-		return details;
+	public String getName() {
+		return name;
 	}
-	public void setDetails(List<RegulationDetail> details) {
-		this.details = details;
+	public void setName(String name) {
+		this.name = name;
+	}
+	public String getColName() {
+		return colName;
+	}
+	public void setColName(String colName) {
+		this.colName = colName;
+	}
+	public String getColValue() {
+		return colValue;
+	}
+	public void setColValue(String colValue) {
+		this.colValue = colValue;
+	}
+	public String getOperator() {
+		return operator;
+	}
+	public void setOperator(String operator) {
+		this.operator = operator;
+	}
+	public String getSqlTxt() {
+		return sqlTxt;
+	}
+	public void setSqlTxt(String sqlTxt) {
+		this.sqlTxt = sqlTxt;
 	}
 	
 	
